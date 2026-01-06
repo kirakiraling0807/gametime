@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { User, DaySchedule, TimeRange } from "../types";
-import { storageService } from "../services/storage";
+import { storageService, normalizeDate } from "../services/storage";
 import {
   format,
   startOfMonth,
@@ -33,6 +33,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -42,18 +43,19 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   const [endTime, setEndTime] = useState(24);
 
   const loadSchedule = async () => {
-    setIsLoading(true);
+    if (isInitialLoading) setIsInitialLoading(true);
     try {
       const data = await storageService.getUserSchedule(currentUser.name);
-      // Ensure all dates from backend are normalized
+      // 使用強效的正規化確保日期無誤
       const normalizedData = (data || []).map((s) => ({
         ...s,
-        date: s.date.split("T")[0],
+        date: normalizeDate(s.date),
       }));
       setSchedule(normalizedData);
     } catch (error) {
       console.error("Failed to load schedule", error);
     } finally {
+      setIsInitialLoading(false);
       setIsLoading(false);
     }
   };
@@ -69,7 +71,10 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
     });
   }, [currentDate]);
 
-  const selectedDateStr = format(selectedDate, "yyyy-MM-dd");
+  const selectedDateStr = useMemo(
+    () => normalizeDate(selectedDate),
+    [selectedDate]
+  );
 
   const currentRanges = useMemo(() => {
     const day = schedule.find((s) => s.date === selectedDateStr);
@@ -159,7 +164,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   };
 
   const getDayClass = (day: Date) => {
-    const dateStr = format(day, "yyyy-MM-dd");
+    const dateStr = normalizeDate(day);
     const hasData = schedule.some(
       (s) => s.date === dateStr && s.ranges.length > 0
     );
@@ -180,6 +185,15 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   };
 
   const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
+
+  if (isInitialLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
+        <Loader2 className="animate-spin mb-4 text-brand-300" size={48} />
+        <p className="font-bold">正在載入您的行程...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full">
@@ -221,7 +235,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
           )}
 
           {daysInMonth.map((day) => {
-            const dateStr = format(day, "yyyy-MM-dd");
+            const dateStr = normalizeDate(day);
             const hasData = schedule.some(
               (s) => s.date === dateStr && s.ranges.length > 0
             );
@@ -266,10 +280,19 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
                 {format(selectedDate, "d")} 日
                 <span className="text-base text-slate-400 font-medium px-3 py-1 bg-slate-100 rounded-full">
                   週
-                  {format(selectedDate, "eeee", { locale: zhTW }).replace(
-                    "星期",
-                    "週"
-                  )}
+                  {format(selectedDate, "e", { locale: zhTW }) === "1"
+                    ? "日"
+                    : format(selectedDate, "e", { locale: zhTW }) === "2"
+                    ? "一"
+                    : format(selectedDate, "e", { locale: zhTW }) === "3"
+                    ? "二"
+                    : format(selectedDate, "e", { locale: zhTW }) === "4"
+                    ? "三"
+                    : format(selectedDate, "e", { locale: zhTW }) === "5"
+                    ? "四"
+                    : format(selectedDate, "e", { locale: zhTW }) === "6"
+                    ? "五"
+                    : "六"}
                 </span>
               </div>
             </div>

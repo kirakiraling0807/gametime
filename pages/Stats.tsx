@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { User, UserSchedule, TimeRange } from "../types";
-import { storageService } from "../services/storage";
+import { storageService, normalizeDate } from "../services/storage";
 import {
   format,
   startOfMonth,
@@ -29,8 +29,6 @@ export const Stats: React.FC<StatsProps> = () => {
         storageService.getUsers(),
         storageService.getAllSchedules(),
       ]);
-      console.log("Stats Loaded Users:", fetchedUsers);
-      console.log("Stats Loaded Schedules:", fetchedSchedules);
       setUsers(Array.isArray(fetchedUsers) ? fetchedUsers : []);
       setAllSchedules(Array.isArray(fetchedSchedules) ? fetchedSchedules : []);
     } catch (e) {
@@ -59,10 +57,12 @@ export const Stats: React.FC<StatsProps> = () => {
     if (!allSchedules.length) return [];
 
     const mappedData = daysInMonth.map((day) => {
-      const dateStr = format(day, "yyyy-MM-dd");
+      const dateStr = normalizeDate(day);
 
       const activeUsersOnDay = allSchedules.filter((userSched) => {
-        const daySched = userSched.schedules.find((d) => d.date === dateStr);
+        const daySched = userSched.schedules.find(
+          (d) => normalizeDate(d.date) === dateStr
+        );
         return (
           daySched &&
           Array.isArray(daySched.ranges) &&
@@ -75,7 +75,9 @@ export const Stats: React.FC<StatsProps> = () => {
       const hours = Array.from({ length: 24 }, (_, i) => i);
       const overlapHeatmap = hours.map((hour) => {
         const count = activeUsersOnDay.filter((uSched) => {
-          const daySched = uSched.schedules.find((d) => d.date === dateStr);
+          const daySched = uSched.schedules.find(
+            (d) => normalizeDate(d.date) === dateStr
+          );
           return daySched?.ranges.some((r) => isAvailable(r, hour));
         }).length;
         return { hour, count };
@@ -183,7 +185,7 @@ export const Stats: React.FC<StatsProps> = () => {
 
             {activeUsersOnDay.map((uSched: any) => {
               const daySched = uSched.schedules.find(
-                (d: any) => d.date === data.dateStr
+                (d: any) => normalizeDate(d.date) === data.dateStr
               );
               const u = users.find((user) => user.name === uSched.userName);
               if (!daySched) return null;

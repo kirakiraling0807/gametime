@@ -21,11 +21,14 @@ export interface IStorageService {
 const USERS_KEY = "gts_users";
 const SCHEDULES_KEY = "gts_schedules";
 
-// Robust helper to extract YYYY-MM-DD from any date-like input
-const normalizeDate = (dateVal: any): string => {
+/**
+ * 徹底解決時區偏移問題的日期正規化函數
+ * 確保輸出的日期永遠是 YYYY-MM-DD
+ */
+export const normalizeDate = (dateVal: any): string => {
   if (!dateVal) return "";
 
-  // If it's a Date object
+  // 1. 如果是 Date 物件（通常從 Google Sheets 傳回）
   if (dateVal instanceof Date) {
     const y = dateVal.getFullYear();
     const m = String(dateVal.getMonth() + 1).padStart(2, "0");
@@ -33,10 +36,19 @@ const normalizeDate = (dateVal: any): string => {
     return `${y}-${m}-${d}`;
   }
 
-  // If it's a string (e.g., ISO "2023-10-01T16:00:00.000Z" or just "2023-10-01")
+  // 2. 如果是字串
   if (typeof dateVal === "string") {
-    // Attempt to parse if it looks like ISO string, or just take the first 10 chars
-    return dateVal.split("T")[0].split(" ")[0];
+    // 處理 ISO 格式 "2024-01-06T16:00:00.000Z" -> "2024-01-06"
+    // 或者 "2024/01/06 00:00:00" -> "2024-01-06"
+    const firstPart = dateVal.split("T")[0].split(" ")[0];
+    const parts = firstPart.split(/[-/]/);
+    if (parts.length === 3) {
+      const y = parts[0];
+      const m = parts[1].padStart(2, "0");
+      const d = parts[2].padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    }
+    return firstPart;
   }
 
   return String(dateVal);
@@ -143,7 +155,6 @@ class GoogleSheetsAdapter implements IStorageService {
     const data = await this.request("getSchedules");
     if (!Array.isArray(data)) return [];
 
-    // Normalize data structure and dates
     return data.map((us: any) => ({
       userName: us.userName,
       schedules: (us.schedules || []).map((s: any) => ({
