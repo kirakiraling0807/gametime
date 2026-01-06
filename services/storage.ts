@@ -18,100 +18,31 @@ export interface IStorageService {
   ): Promise<void>;
 }
 
-const USERS_KEY = "gts_users";
-const SCHEDULES_KEY = "gts_schedules";
-
 /**
  * 徹底解決時區偏移問題的日期正規化函數
- * 確保輸出的日期永遠是 YYYY-MM-DD
  */
 export const normalizeDate = (dateVal: any): string => {
   if (!dateVal) return "";
 
-  // 1. 如果是 Date 物件（通常從 Google Sheets 傳回）
-  if (dateVal instanceof Date) {
-    const y = dateVal.getFullYear();
-    const m = String(dateVal.getMonth() + 1).padStart(2, "0");
-    const d = String(dateVal.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+  // 如果已經是 YYYY-MM-DD 格式的字串，直接回傳
+  if (typeof dateVal === "string" && /^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
+    return dateVal;
   }
 
-  // 2. 如果是字串
-  if (typeof dateVal === "string") {
-    // 處理 ISO 格式 "2024-01-06T16:00:00.000Z" -> "2024-01-06"
-    // 或者 "2024/01/06 00:00:00" -> "2024-01-06"
-    const firstPart = dateVal.split("T")[0].split(" ")[0];
-    const parts = firstPart.split(/[-/]/);
-    if (parts.length === 3) {
-      const y = parts[0];
-      const m = parts[1].padStart(2, "0");
-      const d = parts[2].padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    }
-    return firstPart;
+  const d = new Date(dateVal);
+  if (isNaN(d.getTime())) {
+    // 處理 ISO 字串或其他格式
+    const str = String(dateVal).split("T")[0];
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    return "";
   }
 
-  return String(dateVal);
+  // 使用本地時間 (Local Time) 取得年月日，避免 ISO/UTC 導致的 -1 天
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 };
-
-class LocalStorageAdapter implements IStorageService {
-  async getUsers(): Promise<User[]> {
-    const data = localStorage.getItem(USERS_KEY);
-    return data ? JSON.parse(data) : [];
-  }
-  async saveUser(user: User): Promise<void> {
-    const users = await this.getUsers();
-    const existingIndex = users.findIndex((u) => u.name === user.name);
-    if (existingIndex >= 0) users[existingIndex] = user;
-    else users.push(user);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  }
-  async getUserByName(name: string): Promise<User | undefined> {
-    const users = await this.getUsers();
-    return users.find((u) => u.name === name);
-  }
-  async updateUserRenaming(oldName: string, newUser: User): Promise<void> {
-    const users = await this.getUsers();
-    const index = users.findIndex((u) => u.name === oldName);
-    if (index !== -1) users[index] = newUser;
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
-    const all = await this.getAllSchedules();
-    const userSched = all.find((s) => s.userName === oldName);
-    if (userSched) userSched.userName = newUser.name;
-    localStorage.setItem(SCHEDULES_KEY, JSON.stringify(all));
-  }
-  async getAllSchedules(): Promise<UserSchedule[]> {
-    const data = localStorage.getItem(SCHEDULES_KEY);
-    return data ? JSON.parse(data) : [];
-  }
-  async getUserSchedule(userName: string): Promise<DaySchedule[]> {
-    const all = await this.getAllSchedules();
-    const found = all.find((s) => s.userName === userName);
-    return found ? found.schedules : [];
-  }
-  async saveUserDaySchedule(
-    userName: string,
-    date: string,
-    ranges: any[]
-  ): Promise<void> {
-    const all = await this.getAllSchedules();
-    let userSched = all.find((s) => s.userName === userName);
-    if (!userSched) {
-      userSched = { userName, schedules: [] };
-      all.push(userSched);
-    }
-    const dayIndex = userSched.schedules.findIndex(
-      (d) => normalizeDate(d.date) === date
-    );
-    if (dayIndex >= 0) {
-      if (ranges.length === 0) userSched.schedules.splice(dayIndex, 1);
-      else userSched.schedules[dayIndex].ranges = ranges;
-    } else if (ranges.length > 0) {
-      userSched.schedules.push({ date, ranges });
-    }
-    localStorage.setItem(SCHEDULES_KEY, JSON.stringify(all));
-  }
-}
 
 class GoogleSheetsAdapter implements IStorageService {
   private url: string;
@@ -137,16 +68,15 @@ class GoogleSheetsAdapter implements IStorageService {
   }
 
   async getUsers(): Promise<User[]> {
-    return this.request("getUsers");
+    const users = await this.request("getUsers");
+    return Array.isArray(users) ? users : [];
   }
   async saveUser(user: User): Promise<void> {
     await this.request("saveUser", { user });
   }
   async getUserByName(name: string): Promise<User | undefined> {
     const users = await this.getUsers();
-    return Array.isArray(users)
-      ? users.find((u) => u.name === name)
-      : undefined;
+    return users.find((u) => u.name === name);
   }
   async updateUserRenaming(oldName: string, newUser: User): Promise<void> {
     await this.request("renameUser", { oldName, newUser });
@@ -177,7 +107,4 @@ class GoogleSheetsAdapter implements IStorageService {
   }
 }
 
-export const storageService =
-  USE_GOOGLE_SHEETS && GOOGLE_SCRIPT_URL
-    ? new GoogleSheetsAdapter(GOOGLE_SCRIPT_URL)
-    : new LocalStorageAdapter();
+export const storageService = new GoogleSheetsAdapter(GOOGLE_SCRIPT_URL);

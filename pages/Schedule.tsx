@@ -33,8 +33,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [schedule, setSchedule] = useState<DaySchedule[]>([]);
-  const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -43,19 +42,13 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   const [endTime, setEndTime] = useState(24);
 
   const loadSchedule = async () => {
-    if (isInitialLoading) setIsInitialLoading(true);
+    setIsLoading(true);
     try {
       const data = await storageService.getUserSchedule(currentUser.name);
-      // 使用強效的正規化確保日期無誤
-      const normalizedData = (data || []).map((s) => ({
-        ...s,
-        date: normalizeDate(s.date),
-      }));
-      setSchedule(normalizedData);
+      setSchedule(data || []);
     } catch (error) {
       console.error("Failed to load schedule", error);
     } finally {
-      setIsInitialLoading(false);
       setIsLoading(false);
     }
   };
@@ -77,7 +70,7 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   );
 
   const currentRanges = useMemo(() => {
-    const day = schedule.find((s) => s.date === selectedDateStr);
+    const day = schedule.find((s) => normalizeDate(s.date) === selectedDateStr);
     return day ? day.ranges : [];
   }, [schedule, selectedDateStr]);
 
@@ -93,22 +86,17 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
     setSelectedDate(day);
     setIsModalOpen(true);
     setErrorMessage("");
-    setStartTime(12);
-    setEndTime(24);
   };
 
   const handleSaveRanges = async (newRanges: TimeRange[]) => {
     const newSchedule = [...schedule];
     const existingIndex = newSchedule.findIndex(
-      (s) => s.date === selectedDateStr
+      (s) => normalizeDate(s.date) === selectedDateStr
     );
 
     if (existingIndex >= 0) {
-      if (newRanges.length === 0) {
-        newSchedule.splice(existingIndex, 1);
-      } else {
-        newSchedule[existingIndex].ranges = newRanges;
-      }
+      if (newRanges.length === 0) newSchedule.splice(existingIndex, 1);
+      else newSchedule[existingIndex].ranges = newRanges;
     } else if (newRanges.length > 0) {
       newSchedule.push({ date: selectedDateStr, ranges: newRanges });
     }
@@ -123,7 +111,6 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
       );
     } catch (e) {
       console.error(e);
-      alert("儲存失敗，請重試");
     } finally {
       setIsSaving(false);
     }
@@ -134,18 +121,17 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   };
 
   const addRange = () => {
-    setErrorMessage("");
-    if (startTime >= endTime) {
-      setErrorMessage("開始時間必須早於結束時間");
-      return;
-    }
+    if (startTime >= endTime) return;
     if (isOverlapping(startTime, endTime)) {
       setErrorMessage("與已登記的時段重疊");
       return;
     }
-    const newRanges = [...currentRanges, { start: startTime, end: endTime }];
-    newRanges.sort((a, b) => a.start - b.start);
+    const newRanges = [
+      ...currentRanges,
+      { start: startTime, end: endTime },
+    ].sort((a, b) => a.start - b.start);
     handleSaveRanges(newRanges);
+    setErrorMessage("");
   };
 
   const removeRange = (index: number) => {
@@ -155,42 +141,17 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
   };
 
   const toggleAllDay = (checked: boolean) => {
-    setErrorMessage("");
-    if (checked) {
-      handleSaveRanges([{ start: 0, end: 24 }]);
-    } else {
-      handleSaveRanges([{ start: 12, end: 24 }]);
-    }
-  };
-
-  const getDayClass = (day: Date) => {
-    const dateStr = normalizeDate(day);
-    const hasData = schedule.some(
-      (s) => s.date === dateStr && s.ranges.length > 0
-    );
-    const isTodayDate = isToday(day);
-
-    let base =
-      "h-14 md:h-24 w-full rounded-2xl flex flex-col items-center justify-center transition-all relative border-2 btn-bounce ";
-
-    if (isTodayDate) {
-      base += "bg-white border-brand-200 text-brand-500 font-bold ";
-    } else if (hasData) {
-      base += "bg-white border-green-200 text-slate-700 ";
-    } else {
-      base +=
-        "bg-white/60 border-transparent text-slate-400 hover:bg-white hover:border-slate-200 ";
-    }
-    return base;
+    if (checked) handleSaveRanges([{ start: 0, end: 24 }]);
+    else handleSaveRanges([]);
   };
 
   const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
 
-  if (isInitialLoading) {
+  if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-slate-400">
         <Loader2 className="animate-spin mb-4 text-brand-300" size={48} />
-        <p className="font-bold">正在載入您的行程...</p>
+        <p className="font-bold">載入中，請稍候...</p>
       </div>
     );
   }
@@ -237,24 +198,27 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
           {daysInMonth.map((day) => {
             const dateStr = normalizeDate(day);
             const hasData = schedule.some(
-              (s) => s.date === dateStr && s.ranges.length > 0
+              (s) => normalizeDate(s.date) === dateStr && s.ranges.length > 0
             );
+            const isTodayDate = isToday(day);
+
             return (
               <button
                 key={day.toString()}
                 onClick={() => handleDateClick(day)}
-                className={getDayClass(day)}
+                className={`h-14 md:h-24 w-full rounded-2xl flex flex-col items-center justify-center transition-all border-2 btn-bounce ${
+                  isTodayDate
+                    ? "bg-white border-brand-200 text-brand-500 font-bold"
+                    : hasData
+                    ? "bg-white border-green-200 text-slate-700"
+                    : "bg-white/60 border-transparent text-slate-400 hover:bg-white hover:border-slate-200"
+                }`}
               >
                 <span className="text-lg md:text-2xl font-bold">
                   {format(day, "d")}
                 </span>
                 {hasData && (
-                  <div className={`mt-1 flex items-center gap-1`}>
-                    <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                    <span className="hidden md:block text-[10px] text-green-600 font-bold">
-                      已填寫
-                    </span>
-                  </div>
+                  <div className="mt-1 w-1.5 h-1.5 rounded-full bg-green-400" />
                 )}
               </button>
             );
@@ -263,168 +227,112 @@ export const Schedule: React.FC<ScheduleProps> = ({ currentUser }) => {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-sm rounded-[2.5rem] p-6 shadow-2xl relative">
             <button
               onClick={() => setIsModalOpen(false)}
-              className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full transition-colors"
+              className="absolute top-4 right-4 p-2 text-slate-400 hover:bg-slate-100 rounded-full"
             >
               <X size={20} />
             </button>
 
             <div className="mb-6 border-b border-slate-100 pb-4">
-              <div className="text-slate-400 font-bold mb-1 text-sm">
-                {format(selectedDate, "yyyy MMMM", { locale: zhTW })}
-              </div>
-              <div className="text-3xl font-extrabold text-slate-700 flex items-center gap-2">
+              <div className="text-3xl font-extrabold text-slate-700">
                 {format(selectedDate, "d")} 日
-                <span className="text-base text-slate-400 font-medium px-3 py-1 bg-slate-100 rounded-full">
-                  週
-                  {format(selectedDate, "e", { locale: zhTW }) === "1"
-                    ? "日"
-                    : format(selectedDate, "e", { locale: zhTW }) === "2"
-                    ? "一"
-                    : format(selectedDate, "e", { locale: zhTW }) === "3"
-                    ? "二"
-                    : format(selectedDate, "e", { locale: zhTW }) === "4"
-                    ? "三"
-                    : format(selectedDate, "e", { locale: zhTW }) === "5"
-                    ? "四"
-                    : format(selectedDate, "e", { locale: zhTW }) === "6"
-                    ? "五"
-                    : "六"}
+                <span className="ml-2 text-base text-slate-400 font-medium bg-slate-100 px-3 py-1 rounded-full">
+                  週{format(selectedDate, "eee", { locale: zhTW })}
                 </span>
               </div>
             </div>
 
-            <div className="max-h-[40vh] overflow-y-auto mb-6 custom-scrollbar pr-2 space-y-3">
-              {isLoading ? (
-                <div className="py-8 flex justify-center text-brand-300">
-                  <Loader2 className="animate-spin" size={32} />
-                </div>
-              ) : currentRanges.length === 0 ? (
-                <div className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-                  <Clock size={32} className="mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">這天還沒安排時間喔</p>
-                </div>
+            <div className="max-h-[30vh] overflow-y-auto mb-6 custom-scrollbar space-y-3">
+              {currentRanges.length === 0 ? (
+                <p className="text-center py-8 text-slate-400 bg-slate-50 rounded-2xl">
+                  還沒安排時間喔
+                </p>
               ) : (
                 currentRanges.map((range, idx) => (
                   <div
                     key={idx}
-                    className="flex items-center justify-between p-3 bg-cream-50 rounded-2xl border border-brand-100"
+                    className="flex items-center justify-between p-3 bg-brand-50 rounded-2xl border border-brand-100"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-1.5 h-8 rounded-full bg-brand-300"></div>
-                      <div>
-                        <span className="text-lg font-bold text-slate-700 block leading-tight">
-                          {range.start}:00 - {range.end}:00
-                        </span>
-                        {range.end - range.start === 24 && (
-                          <span className="text-[10px] bg-brand-100 text-brand-600 px-2 py-0.5 rounded-full inline-block mt-1">
-                            整天
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    <span className="font-bold text-slate-700">
+                      {range.start}:00 - {range.end}:00
+                    </span>
                     <button
                       onClick={() => removeRange(idx)}
-                      className="p-2 text-slate-300 hover:text-red-400 hover:bg-white rounded-xl transition-all"
+                      className="text-red-400 p-1 hover:bg-white rounded-lg"
                     >
-                      <Trash2 size={18} />
+                      <Trash2 size={16} />
                     </button>
                   </div>
                 ))
               )}
             </div>
 
-            <div className="space-y-4 pt-2">
-              <div
-                className="flex items-center gap-3 p-3 bg-slate-50 rounded-2xl cursor-pointer hover:bg-slate-100 transition-colors"
+            <div className="space-y-4">
+              <button
                 onClick={() => toggleAllDay(!isAllDay)}
+                className="w-full flex items-center gap-3 p-3 bg-slate-50 rounded-2xl font-bold text-slate-600"
               >
                 <div
-                  className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-colors ${
+                  className={`w-5 h-5 rounded border-2 ${
                     isAllDay
                       ? "bg-brand-500 border-brand-500"
                       : "bg-white border-slate-300"
                   }`}
-                >
-                  {isAllDay && <CheckCircle size={14} className="text-white" />}
-                </div>
-                <label className="font-bold text-slate-600 cursor-pointer select-none flex-1">
-                  全天 (00:00 - 24:00)
-                </label>
-              </div>
+                />
+                全天 (00:00 - 24:00)
+              </button>
 
               {!isAllDay && (
-                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 space-y-3">
+                <div className="bg-slate-50 p-3 rounded-2xl space-y-3">
                   <div className="flex items-center gap-2">
-                    <div className="flex-1 bg-white p-2 rounded-xl border border-slate-200">
-                      <select
-                        value={startTime}
-                        onChange={(e) => {
-                          setStartTime(Number(e.target.value));
-                          setErrorMessage("");
-                        }}
-                        className="w-full bg-transparent font-bold text-slate-700 outline-none text-center text-sm"
-                      >
-                        {Array.from({ length: 25 }).map((_, i) => (
-                          <option key={i} value={i} disabled={i >= endTime}>
-                            {i}:00
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <span className="text-slate-400 font-bold text-sm">至</span>
-                    <div className="flex-1 bg-white p-2 rounded-xl border border-slate-200">
-                      <select
-                        value={endTime}
-                        onChange={(e) => {
-                          setEndTime(Number(e.target.value));
-                          setErrorMessage("");
-                        }}
-                        className="w-full bg-transparent font-bold text-slate-700 outline-none text-center text-sm"
-                      >
-                        {Array.from({ length: 25 }).map((_, i) => (
-                          <option key={i} value={i} disabled={i <= startTime}>
-                            {i}:00
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      value={startTime}
+                      onChange={(e) => setStartTime(Number(e.target.value))}
+                      className="flex-1 p-2 rounded-xl border border-slate-200 font-bold text-center"
+                    >
+                      {Array.from({ length: 24 }).map((_, i) => (
+                        <option key={i} value={i}>
+                          {i}:00
+                        </option>
+                      ))}
+                    </select>
+                    <span className="font-bold text-slate-400">至</span>
+                    <select
+                      value={endTime}
+                      onChange={(e) => setEndTime(Number(e.target.value))}
+                      className="flex-1 p-2 rounded-xl border border-slate-200 font-bold text-center"
+                    >
+                      {Array.from({ length: 25 }).map((_, i) => (
+                        <option key={i} value={i}>
+                          {i}:00
+                        </option>
+                      ))}
+                    </select>
                   </div>
-
                   {errorMessage && (
-                    <div className="flex items-center gap-2 text-red-500 text-xs font-bold px-1 animate-in slide-in-from-top-1">
-                      <AlertTriangle size={12} />
+                    <p className="text-red-500 text-xs font-bold text-center">
                       {errorMessage}
-                    </div>
+                    </p>
                   )}
-
                   <button
                     onClick={addRange}
-                    className="w-full bg-brand-500 hover:bg-brand-600 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-200 flex items-center justify-center gap-2 btn-bounce transition-all text-sm"
+                    className="w-full bg-brand-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-brand-200"
                   >
-                    <Plus size={18} strokeWidth={3} />
-                    <span>新增時段</span>
+                    新增時段
                   </button>
                 </div>
               )}
 
-              <div className="flex justify-between items-center h-6 px-1">
-                {isSaving && (
-                  <span className="text-xs text-brand-400 flex items-center gap-1 animate-pulse font-bold">
-                    <Save size={12} /> 儲存中...
-                  </span>
-                )}
-                {!isSaving && (
-                  <span className="text-xs text-slate-300">變更會自動儲存</span>
-                )}
+              <div className="flex justify-between items-center text-xs text-slate-400">
+                {isSaving ? <span>儲存中...</span> : <span>自動儲存中</span>}
                 <button
                   onClick={() => setIsModalOpen(false)}
-                  className="text-xs font-bold text-slate-400 hover:text-slate-600 underline decoration-slate-300 underline-offset-2"
+                  className="font-bold text-brand-500"
                 >
-                  完成並關閉
+                  完成
                 </button>
               </div>
             </div>
